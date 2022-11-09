@@ -68,7 +68,12 @@ async def shutdown():
     await database.disconnect()
 
 
+@app.get("/")
+def root():
+    return {"message": "Welcome to the address book API"}
+
 # create a route to get all the records
+
 # address create endpoint
 @app.post("/address/", response_model=AddressBook)
 async def create_address(address: AddressBookIn):
