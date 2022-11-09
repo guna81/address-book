@@ -1,3 +1,5 @@
+# import required packages
+import uvicorn
 import databases
 import sqlalchemy
 from fastapi import FastAPI
@@ -6,12 +8,15 @@ from typing import List
 from math import cos, asin
 
 
+# create a database connection
 DATABASE_URL = "sqlite:///./sqlite.db"
 
 database = databases.Database(DATABASE_URL)
 
 metadata = sqlalchemy.MetaData()
 
+
+# create a table
 addrss_book = sqlalchemy.Table(
     "address_book",
     metadata,
@@ -30,6 +35,7 @@ engine = sqlalchemy.create_engine(
 metadata.create_all(engine)
 
 
+# create a model
 class AddressBookIn(BaseModel):
     name: str
     address: str
@@ -47,9 +53,11 @@ class AddressBook(BaseModel):
     longitude: float
 
 
+# create a FastAPI app
 app = FastAPI()
 
 
+# connect the app to the database
 @app.on_event("startup")
 async def startup():
     await database.connect()
@@ -60,6 +68,8 @@ async def shutdown():
     await database.disconnect()
 
 
+# create a route to get all the records
+# address create endpoint
 @app.post("/address/", response_model=AddressBook)
 async def create_address(address: AddressBookIn):
     query = addrss_book.insert().values(
@@ -69,6 +79,7 @@ async def create_address(address: AddressBookIn):
     return {**address.dict(), "id": last_record_id}
 
 
+# address update endpoint
 @app.put("/address/{address_id}", response_model=AddressBook)
 async def update_address(address_id: int, address: AddressBookIn):
     query = (
@@ -86,6 +97,7 @@ async def update_address(address_id: int, address: AddressBookIn):
     return {**address.dict(), "id": address_id}
 
 
+# address delete endpoint
 @app.delete("/address/{address_id}", response_model=AddressBook)
 async def delete_address(address_id: int):
     query = addrss_book.delete().where(addrss_book.c.id == address_id)
@@ -93,21 +105,36 @@ async def delete_address(address_id: int):
     return {"id": address_id}
 
 
-def distance_between_two_points(lat1, lon1, distance):
-    R = 6371
-    dLat = distance / R
-    dLon = distance / (R * cos(asin(lat1)))
-    lat2 = lat1 + dLat * 180 / 3.141592653589793
-    lon2 = lon1 + dLon * 180 / 3.141592653589793
-    return lat2, lon2
+# get all addresses endpoint
+@app.get("/address/", response_model=List[AddressBook])
+async def get_addresses():
+    query = addrss_book.select()
+    return await database.fetch_all(query)
 
 
+# distance calculation function
+def distance_between_two_points(lat1, lon1, lat2, lon2):
+    print(lat1, lon1, lat2, lon2)
+    p = 0.017453292519943295
+    a = 0.5 - cos((lat2 - lat1) * p) / 2 + cos(lat1 * p) * cos(lat2 * p) * (1 - cos((lon2 - lon1) * p)) / 2
+    return 12742 * asin(a)
+
+
+# address by distance endpoint
 @app.get("/address-by-distance/", response_model=List[AddressBook])
 async def get_address_by_distance(lat: float, lon: float, distance: int):
     query = addrss_book.select()
-    rows = await database.fetch_all(query)
-    result = []
-    for row in rows:
-        if distance_between_two_points(lat, lon, distance) == (row['latitude'], row['longitude']):
-            result.append(row)
-    return result
+    addresses = await database.fetch_all(query)
+    addresses = [dict(address) for address in addresses]
+    addresses = [
+        address
+        for address in addresses
+        if distance_between_two_points(lat, lon, address["latitude"], address["longitude"]) <= distance
+    ]
+    return addresses
+
+
+
+# run the app
+if __name__ == "__main__":
+    uvicorn.run(app, host="0.0.0.0", port=8000)
